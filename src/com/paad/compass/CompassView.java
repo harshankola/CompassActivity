@@ -6,8 +6,17 @@ package com.paad.compass;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Paint.Align;
+import android.graphics.Path;
+import android.graphics.Path.Direction;
+import android.graphics.Point;
+import android.graphics.PointF;
+import android.graphics.RadialGradient;
+import android.graphics.RectF;
+import android.graphics.Shader.TileMode;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
@@ -20,10 +29,6 @@ public class CompassView extends View {
 
 	private float bearing;
 	private Paint circlePaint;
-	private String northString;
-	private String eastString;
-	private String southString;
-	private String westString;
 	private Paint textPaint;
 	private int textHeight;
 	private Paint markerPaint;
@@ -117,10 +122,10 @@ public class CompassView extends View {
 		circlePaint.setStrokeWidth(1);
 		circlePaint.setStyle(Paint.Style.STROKE);
 
-		northString = r.getString(R.string.cardinal_north);
-		eastString = r.getString(R.string.cardinal_east);
-		southString = r.getString(R.string.cardinal_south);
-		westString = r.getString(R.string.cardinal_west);
+		r.getString(R.string.cardinal_north);
+		r.getString(R.string.cardinal_east);
+		r.getString(R.string.cardinal_south);
+		r.getString(R.string.cardinal_west);
 
 		textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 		textPaint.setColor(r.getColor(R.color.text_color));
@@ -148,11 +153,36 @@ public class CompassView extends View {
 		borderGradientPositions[2] = 1 - 0.03f;
 		borderGradientPositions[1] = 1 - 0.06f;
 		borderGradientPositions[0] = 1.0f;
-		
-		glassGradientColors=new int[5];
-		glassGradientPositions=new float[5];
-		
-		int glassColor=245;
+
+		glassGradientColors = new int[5];
+		glassGradientPositions = new float[5];
+
+		int glassColor = 245;
+		glassGradientColors[4] = Color.argb(65, glassColor, glassColor,
+				glassColor);
+		glassGradientColors[3] = Color.argb(100, glassColor, glassColor,
+				glassColor);
+		glassGradientColors[2] = Color.argb(50, glassColor, glassColor,
+				glassColor);
+		glassGradientColors[1] = Color.argb(0, glassColor, glassColor,
+				glassColor);
+		glassGradientColors[0] = Color.argb(0, glassColor, glassColor,
+				glassColor);
+		glassGradientPositions[4] = 1 - 0.0f;
+		glassGradientPositions[3] = 1 - 0.06f;
+		glassGradientPositions[2] = 1 - 0.10f;
+		glassGradientPositions[1] = 1 - 0.20f;
+		glassGradientPositions[0] = 1 - 1.0f;
+
+		skyHorizonColorFrom = r.getColor(R.color.horizon_sky_from);
+		skyHorizonColorTo = r.getColor(R.color.horizon_sky_to);
+
+		groundHorizonColorFrom = r.getColor(R.color.horizon_ground_from);
+		groundHorizonColorTo = r.getColor(R.color.horizon_ground_to);
+	}
+
+	private enum CompassDirection {
+		N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW
 	}
 
 	/*
@@ -163,78 +193,202 @@ public class CompassView extends View {
 	@Override
 	protected void onDraw(Canvas canvas) {
 		// TODO Auto-generated method stub
-		/*
-		 * Find the center of the control, and store the length of smallest side
-		 * as the compass's radius.
-		 */
-		int mMeasuredWidth = getMeasuredWidth();
-		int mMeasuredHeight = getMeasuredHeight();
+		// Calculate width of outer ring based on size of fond used to Draw
+		// heading values.
+		float ringWidth = textHeight + 4;
 
-		int px = mMeasuredWidth / 2;
-		int py = mMeasuredHeight / 2;
+		// Calculate height and Width of View, and use it for Radius and
+		// Bounding Boxes.
+		int height = getMeasuredHeight();
+		int width = getMeasuredWidth();
 
-		int radius = Math.min(px, py);
+		int px = width / 2;
+		int py = height / 2;
+		Point center = new Point(px, py);
 
-		// Draw the background
-		canvas.drawCircle(px, py, radius, circlePaint);
+		int radius = Math.min(px, py) - 2;
 
-		/*
-		 * Rotate our perspective so that the 'top' is facing the current
-		 * bearing.
-		 */
+		RectF boundingBox = new RectF(center.x - radius, center.y - radius,
+				center.x + radius, center.y + radius);
+
+		RectF innerBoundingBox = new RectF(center.x - radius + ringWidth,
+				center.y - radius + ringWidth, center.x + radius - ringWidth,
+				center.y + radius - ringWidth);
+
+		float innerRadius = innerBoundingBox.height() / 2;
+
+		// Start drawing the faces.
+		// Create radial gradient and assign a shader before drawing circle.
+		RadialGradient borderGradient = new RadialGradient(px, py, radius,
+				borderGradientColors, borderGradientPositions, TileMode.CLAMP);
+
+		Paint pgb = new Paint();
+		pgb.setShader(borderGradient);
+
+		Path outerRingPath = new Path();
+		outerRingPath.addOval(boundingBox, Direction.CW);
+
+		canvas.drawPath(outerRingPath, pgb);
+
+		// Draw the Horizon with sky and Ground as its 2 faces. The proportion
+		// of ground is based on the current pitch. Create shaders for the
+		// ground and sky first.
+
+		LinearGradient skyShader = new LinearGradient(center.x,
+				innerBoundingBox.top, center.x, innerBoundingBox.bottom,
+				skyHorizonColorFrom, skyHorizonColorTo, TileMode.CLAMP);
+
+		Paint skyPaint = new Paint();
+		skyPaint.setShader(skyShader);
+
+		LinearGradient groundShader = new LinearGradient(center.x,
+				innerBoundingBox.top, center.x, innerBoundingBox.bottom,
+				groundHorizonColorFrom, groundHorizonColorTo, TileMode.CLAMP);
+
+		Paint groundPaint = new Paint();
+		groundPaint.setShader(groundShader);
+
+		// Normalize the pitch and roll values.
+		float tiltDegree = pitch;
+		while (tiltDegree > 90 || tiltDegree < -90) {
+			if (tiltDegree > 90)
+				tiltDegree = -90 + (tiltDegree - 90);
+			if (tiltDegree < -90)
+				tiltDegree = 90 - (tiltDegree + 90);
+		}
+
+		float rollDegree = roll;
+		while (rollDegree > 180 || rollDegree < -180) {
+			if (rollDegree > 180)
+				rollDegree = -180 + (rollDegree - 180);
+			if (rollDegree < -180)
+				rollDegree = 180 - (rollDegree + 180);
+		}
+
+		Path skyPath = new Path();
+		skyPath.addArc(innerBoundingBox, -tiltDegree, (180 + (2 + tiltDegree)));
+
+		// Spin canvas in opposite to current roll and draw sky and ground
+		// paths.
 		canvas.save();
-		canvas.rotate(-bearing, px, py);
+		canvas.rotate(-rollDegree, px, py);
+		canvas.drawOval(innerBoundingBox, groundPaint);
+		canvas.drawPath(skyPath, skyPaint);
+		canvas.drawPath(skyPath, markerPaint);
 
-		int textWidth = (int) textPaint.measureText("W");
-		int cardinalX = px - textWidth / 2;
-		int cardinalY = py - radius + textHeight;
+		// Face markings.
+		int markWidth = radius / 3;
+		int startX = center.x - markWidth;
+		int endX = center.x + markWidth;
 
-		// Draw the marker every 15 degrees and text every 45.
-		for (int i = 0; i < 24; i++) {
-			// Draw a marker.
-			canvas.drawLine(px, py - radius, px, py - radius + 10, markerPaint);
+		double h = innerRadius * Math.cos(Math.toRadians(90 - tiltDegree));
+		double justTiltY = center.y - h;
 
-			canvas.save();
-			canvas.translate(0, textHeight);
+		float pxPerDegree = (innerBoundingBox.height() / 2) / 45f;
 
-			// Draw the cardinal points
-			if (i % 6 == 0) {
-				String dirString = "";
-				switch (i) {
-				case (0): {
-					dirString = northString;
-					int arrowY = 2 * textHeight;
-					canvas.drawLine(px, arrowY, px - 5, 3 * textHeight,
-							markerPaint);
-					canvas.drawLine(px, arrowY, px + 5, 3 * textHeight,
-							markerPaint);
-					break;
-				}
-				case (6):
-					dirString = eastString;
-					break;
-				case (12):
-					dirString = southString;
-					break;
-				case (18):
-					dirString = westString;
-					break;
-				}
-				canvas.drawText(dirString, cardinalX, cardinalY, textPaint);
-			} else if (i % 3 == 0) {
-				// Draw the text every alternate 45 deg
-				String angle = String.valueOf(i * 15);
-				float angleTextWidth = textPaint.measureText(angle);
+		for (int i = 90; i >= -90; i -= 10) {
+			double ypos = justTiltY + i * pxPerDegree;
 
-				int angleTextX = (int) (px - angleTextWidth / 2);
-				int angleTextY = py - radius + textHeight;
-				canvas.drawText(angle, angleTextX, angleTextY, textPaint);
+			// Only display the scale within the inner face.
+			if ((ypos < (innerBoundingBox.top + textHeight))
+					|| (ypos > (innerBoundingBox.bottom - textHeight))) {
+				continue;
 			}
-			canvas.restore();
 
-			canvas.rotate(15, px, py);
+			// Draw a line and the tilt angle for each scale increment.
+			canvas.drawLine(startX, (float) ypos, endX, (float) ypos,
+					markerPaint);
+			int displayPos = (int) (tiltDegree - 1);
+			String displayString = String.valueOf(displayPos);
+			float stringSizeWidth = textPaint.measureText(displayString);
+			canvas.drawText(displayString,
+					(int) (center.x - stringSizeWidth / 2), (int) (ypos) + 1,
+					textPaint);
+		}
+
+		// Draw a thick line at Earth- Sky Interface.
+		markerPaint.setStrokeWidth(2);
+		canvas.drawLine(center.x - radius / 2, (float) justTiltY, center.x
+				+ radius / 2, (float) justTiltY, markerPaint);
+		markerPaint.setStrokeWidth(1);
+
+		// Draw the arrow
+		Path rollArrow = new Path();
+		rollArrow.moveTo(center.x - 3, (int) innerBoundingBox.top + 14);
+		rollArrow.lineTo(center.x, (int) innerBoundingBox.top + 10);
+		rollArrow.moveTo(center.x + 3, innerBoundingBox.top + 14);
+		rollArrow.lineTo(center.x, innerBoundingBox.top + 10);
+		canvas.drawPath(rollArrow, markerPaint);
+		// Draw the string
+		String rollText = String.valueOf(rollDegree);
+		double rollTextWidth = textPaint.measureText(rollText);
+		canvas.drawText(rollText, (float) (center.x - rollTextWidth / 2),
+				innerBoundingBox.top + textHeight + 2, textPaint);
+
+		canvas.restore();
+
+		// Roll dial markings.
+		canvas.save();
+		canvas.rotate(180, center.x, center.y);
+		for (int i = -180; i < 180; i += 10) {
+			// Show a numeric value every 30 degrees
+			if (i % 30 == 0) {
+				String rollString = String.valueOf(i * -1);
+				float rollStringWidth = textPaint.measureText(rollString);
+				PointF rollStringCenter = new PointF(center.x - rollStringWidth
+						/ 2, innerBoundingBox.top + 1 + textHeight);
+				canvas.drawText(rollString, rollStringCenter.x,
+						rollStringCenter.y, textPaint);
+			}
+			// Otherwise draw a marker line
+			else {
+				canvas.drawLine(center.x, (int) innerBoundingBox.top, center.x,
+						(int) innerBoundingBox.top + 5, markerPaint);
+			}
+			canvas.rotate(10, center.x, center.y);
 		}
 		canvas.restore();
+
+		// Draw heading markers around outer edge.
+		canvas.save();
+		canvas.rotate(-1 * (bearing), px, py);
+
+		// Should this be a double?
+		double increment = 22.5;
+
+		for (double i = 0; i < 360; i += increment) {
+			CompassDirection cd = CompassDirection.values()[(int) (i / 22.5)];
+			String headString = cd.toString();
+
+			float headStringWidth = textPaint.measureText(headString);
+			PointF headStringCenter = new PointF(
+					center.x - headStringWidth / 2, boundingBox.top + 1
+							+ textHeight);
+
+			if (i % increment == 0) {
+				canvas.drawText(headString, headStringCenter.x,
+						headStringCenter.y, textPaint);
+			} else {
+				canvas.drawLine(center.x, (int) boundingBox.top, center.x,
+						(int) boundingBox.top + 3, markerPaint);
+			}
+			canvas.rotate((int) increment, center.x, center.y);
+		}
+		canvas.restore();
+		
+		// Finishing touches
+		
+		RadialGradient glassShader = new RadialGradient(px,py,(int)innerRadius,glassGradientColors,glassGradientPositions,TileMode.CLAMP);
+		Paint glassPaint = new Paint();
+		glassPaint.setShader(glassShader);
+		canvas.drawOval(innerBoundingBox, glassPaint);
+		
+		// Draw the outer ring
+		canvas.drawOval(boundingBox, circlePaint);
+		
+		// Draw the inner ring
+		circlePaint.setStrokeWidth(2);
+		canvas.drawOval(innerBoundingBox, circlePaint);
 	}
 
 	/*
